@@ -86,6 +86,7 @@ def _convert_quotes_block_to_base(day_block: Dict[str, float], base: str) -> Dic
     For 'quotes' style data like {'USDEUR': 0.91, 'USDGBP': 0.78, ...}
     Return dict mapping currency->rate in 'base' terms using:
       (USD->cur) / (USD->base) = base->cur
+    Also ensures a USD column exists: USD in base = 1 / (USD->base).
     """
     usd_to = {}
     for pair, val in day_block.items():
@@ -99,19 +100,23 @@ def _convert_quotes_block_to_base(day_block: Dict[str, float], base: str) -> Dic
 
     base_row = {c: (usd_to[c] / usd_to[base]) for c in usd_to.keys()}
     base_row[base] = 1.0
+    # Explicit USD column (important for export when USD selected)
+    base_row["USD"] = 1.0 / usd_to[base]
     return base_row
 
 def _convert_rates_block_to_base(day_block: Dict[str, float], base: str) -> Dict[str, float]:
     """
     For 'rates' style data like {'EUR': 0.91, 'GBP': 0.78, ...} all vs a hidden provider base (often USD).
-    Convert to chosen base using:
-      cur_in_base = (rate[cur] / rate[base])
+    Convert to chosen base using: cur_in_base = (rate[cur] / rate[base]).
+    Also ensure a USD column: USD in base = 1 / rate[base].
     """
     r = {k: float(v) for k, v in day_block.items()}
     if base not in r:
         return {}
     converted = {c: (r[c] / r[base]) for c in r.keys()}
     converted[base] = 1.0
+    # Ensure USD column (works when underlying provider base is USD)
+    converted.setdefault("USD", 1.0 / r[base])
     return converted
 
 def timeframe_to_dataframe(data: Dict[str, Any], base: str) -> pd.DataFrame:
@@ -244,6 +249,10 @@ if run_btn:
     if df.empty:
         st.warning("No data returned (or base not present in API response). Try a different period or currencies.")
         st.stop()
+
+    # Keep only the columns the user asked for (and base first)
+    wanted = [base] + [c for c in symbols if c != base]
+    df = df[[c for c in wanted if c in df.columns]]
 
     st.subheader("Preview")
     st.dataframe(df, use_container_width=True)
